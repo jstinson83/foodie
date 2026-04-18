@@ -7,24 +7,29 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.serialization.kotlinx.json.*
-import kotlinx.serialization.Serializable
+import io.ktor.client.*
+import io.ktor.client.engine.cio.*
 import io.ktor.http.content.*
 import io.ktor.server.request.*
-import kotlinx.coroutines.delay
+import io.ktor.http.*
+import kotlinx.serialization.json.Json
 
 fun main() {
     embeddedServer(Netty, port = 8080, host = "0.0.0.0", module = Application::module)
         .start(wait = true)
 }
 
-@Serializable
-data class RecipeResponse(
-    val title: String,
-    val ingredients: List<String>,
-    val steps: List<String>
-)
-
-fun Application.module() {
+// Pass in our interface as a parameter, defaulting to the real Gemini implementation
+fun Application.module(
+    recipeParser: RecipeParser = GeminiRecipeParser(
+        HttpClient(CIO) {
+            install(io.ktor.client.plugins.contentnegotiation.ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true })
+            }
+        },
+        System.getenv("GEMINI_API_KEY") ?: ""
+    )
+) {
     install(ContentNegotiation) {
         json()
     }
@@ -35,28 +40,31 @@ fun Application.module() {
         }
 
         post("/recipe/parse") {
-            // 1. Receive the multipart form data (the photo)
             val multipart = call.receiveMultipart()
-            
-            // Simulating AI processing delay
-            delay(1000)
-            
-            // 2. Return the dummy contract data for immediate satisfaction
-            call.respond(RecipeResponse(
-                title = "Grandma's Chocolate Chip Cookies",
-                ingredients = listOf(
-                    "2 1/4 cups all-purpose flour", 
-                    "1 tsp baking soda",
-                    "1/2 tsp salt",
-                    "1 cup butter, softened"
-                ),
-                steps = listOf(
-                    "Preheat oven to 375 degrees F.",
-                    "Combine flour, baking soda and salt in small bowl.",
-                    "Beat butter, granulated sugar, brown sugar and vanilla extract in large mixer bowl until creamy.",
-                    "Bake for 9 to 11 minutes or until golden brown."
-                )
-            ))
+            var imageBytes: ByteArray? = null
+
+            multipart.forEachPart { part ->
+                if (part is PartData.FileItem) {
+                    imageBytes = part.streamProvider().readBytes()
+                }
+                part.dispose()
+            }
+
+            if (imageBytes == null) {
+                call.respond(HttpStatusCode.BadRequest, "No image uploaded")
+                return@post
+            }
+
+            try {
+                // Pass the raw bytes to our clean parser interface
+                val recipe = recipeParser.parseRecipeImage(imageBytes!!)
+                call.respond(recipe)
+            } catch (e: IllegalArgumentException) {
+                // This catches the missing API key error thrown by the parser constructor/method
+                call.respond(HttpStatusCode.InternalServerError, e.message ?: "Configuration error")
+            } catch (e: Exception) {
+                call.respond(HttpStatusCode.BadGateway, "Error parsing recipe: ${e.message}")
+            }
         }
     }
 }

@@ -7,15 +7,27 @@ import io.ktor.server.testing.*
 import kotlin.test.*
 import io.ktor.client.request.forms.*
 
+// A fake parser we inject specifically for tests so they run without the Gemini API Key
+class FakeRecipeParser : RecipeParser {
+    override suspend fun parseRecipeImage(imageBytes: ByteArray): RecipeResponse {
+        return RecipeResponse(
+            title = "Grandma's Chocolate Chip Cookies",
+            ingredients = listOf(
+                Ingredient("2 1/4 cups all-purpose flour", "all-purpose flour", 2.25, "cup")
+            ),
+            steps = listOf("Bake it")
+        )
+    }
+}
+
 class ApplicationTest {
     @Test
     fun testParseEndpoint() = testApplication {
-        // Spin up the Ktor application module
         application {
-            module()
+            // Inject the fake parser
+            module(recipeParser = FakeRecipeParser())
         }
         
-        // Use the Ktor test client to send a mock multipart image upload
         val response = client.submitFormWithBinaryData(
             url = "/recipe/parse",
             formData = formData {
@@ -26,16 +38,13 @@ class ApplicationTest {
             }
         )
         
-        // Assert the endpoint succeeded
         assertEquals(HttpStatusCode.OK, response.status)
         
-        // Assert the JSON payload matches the expected contract
         val responseBody = response.bodyAsText()
         assertTrue(responseBody.contains("Grandma's Chocolate Chip Cookies"), "Title was missing in JSON")
-        assertTrue(responseBody.contains("2 1/4 cups all-purpose flour"), "Ingredients were missing in JSON")
+        assertTrue(responseBody.contains("all-purpose flour"), "Ingredient name was missing in JSON")
+        assertTrue(responseBody.contains("2.25"), "Parsed quantity math was missing in JSON")
         
         println("=== TEST PASSED ===")
-        println("Received JSON payload from backend:")
-        println(responseBody)
     }
 }
