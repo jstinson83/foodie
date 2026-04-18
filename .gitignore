@@ -1,0 +1,33 @@
+# Gradle
+.gradle/
+**/build/
+!src/**/build/
+
+# IntelliJ IDEA / Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Android
+.navigation/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+*.apk
+*.ap_
+*.aab
+*.dex
+
+# Kotlin / Java
+*.class
+*.kotlin_module
+*.log
+
+# Mac
+.DS_Store
+
+# Temp files
+.gradle-temp/
